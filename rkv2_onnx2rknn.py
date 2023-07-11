@@ -11,9 +11,9 @@ def test():
 if __name__ == '__main__':
 
     platform = 'rk3566'
-    Width = 960
-    Height = 320
-    MODEL_PATH = '/home/indemind/Code/PycharmProjects/Depth_Estimation/Stereo/HITNET/TinyHITNet/hitnet_xl_sf_finalpass_from_tf_960_320.onnx'
+    Width = 640
+    Height = 400
+    MODEL_PATH = 'hitnet_left_right_cost_.onnx'
 
     NEED_BUILD_MODEL = True
     # NEED_BUILD_MODEL = False
@@ -22,7 +22,7 @@ if __name__ == '__main__':
     rknn = RKNN()
 
     OUT_DIR = "rknn_models"
-    RKNN_MODEL_PATH = 'hitnet_xl_sf_finalpass_from_tf_960_320.rknn'
+    RKNN_MODEL_PATH = 'hitnet_xl_sf_finalpass_from_tf_640_400.rknn'
     if NEED_BUILD_MODEL:
         DATASET = 'dataset.txt'
         rknn.config(mean_values=[[0,0,0]], std_values=[[255.0,255.0,255.0]], target_platform="rk3566")

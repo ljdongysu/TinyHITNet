@@ -41,11 +41,11 @@ def softmax(x):
 
 if __name__ == '__main__':
 
-    model = '/home/indemind/Code/PycharmProjects/Depth_Estimation/Stereo/HITNET/TinyHITNet/ckpt/hitnet_sf_finalpass.pt'
+    model = '/home/indemind/Code/PycharmProjects/Depth_Estimation/Stereo/HITNET/TinyHITNet/hitnet_sf_finalpass.pt'
     if not os.path.exists(model):
         export_pytorch_model()
 
-    input_size_list = [[1, 3, 224, 224]]
+    input_size_list = [[1, 6, 320, 960]]
 
     # Create RKNN object
     rknn = RKNN(verbose=True)
@@ -73,7 +73,7 @@ if __name__ == '__main__':
 
     # Export rknn model
     print('--> Export rknn model')
-    ret = rknn.export_rknn('./resnet_18.rknn')
+    ret = rknn.export_rknn('./hitnet_sf_finalpass.rknn')
     if ret != 0:
         print('Export rknn model failed!')
         exit(ret)

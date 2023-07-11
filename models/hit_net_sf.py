@@ -189,20 +189,28 @@ def warp_and_aggregate(hyp, left, right):
     for offset in [1, 0, -1]:
         index_float = d_range + offset
         index_long = torch.floor(index_float).long()
-        index_left = torch.clip(index_long, min=0, max=right.size(3) - 1)
-        index_right = torch.clip(index_long + 1, min=0, max=right.size(3) - 1)
+
+        # TODO replace torch.clip 
+        index_left = index_long# torch.clip(index_long, min=0, max=right.size(3) - 1)
+        index_right = index_long + 1# torch.clip(index_long + 1, min=0, max=right.size(3) - 1)
         index_weight = index_float - index_left
 
-        right_warp_left = torch.gather(right, dim=-1, index=index_left.long())
-        right_warp_right = torch.gather(right, dim=-1, index=index_right.long())
+        # right_warp_left = torch.gather(right, dim=-1, index=index_left.long())
+        # right_warp_right = torch.gather(right, dim=-1, index=index_right.long())
+        ## TODO replace torch.gather 
+        right_warp_left = left # torch.gather(right, dim=-1, index=index_left.long())
+        right_warp_right = right # torch.gather(right, dim=-1, index=index_right.long())
+        print("right.shape: ", right.shape, "right_warp_left.shape: ", right_warp_left.shape)
+        print("left.shape: ", left.shape, "right_warp_right: ", right_warp_right.shape)
+        
         right_warp = right_warp_left + index_weight * (
             right_warp_right - right_warp_left
         )
         cost.append(torch.sum(torch.abs(left - right_warp), dim=1, keepdim=True))
     cost = torch.cat(cost, dim=1)
 
-    n, c, h, w = cost.size()
-    cost = cost.reshape(n, c, h // scale, scale, w // scale, scale)
+    n, c, h, w = cost.size() # 1 X 4 X 400 X 640
+    cost = cost.reshape(n, c, h // scale, scale, w // scale, scale) # 1 X 4 X 100 X 4 X 160 X 4
     cost = cost.permute(0, 3, 5, 1, 2, 4)
     cost = cost.reshape(n, scale * scale * c, h // scale, w // scale)
     return cost
@@ -235,9 +243,12 @@ def make_cost_volume_v2(left, right, max_disp):
     x_index = torch.clip(4 * x_index - d_range + 1, 0, right.size(3) - 1).repeat(
         right.size(0), right.size(1), 1, right.size(2), 1
     )
-    right = torch.gather(
-        right.unsqueeze(2).repeat(1, 1, max_disp, 1, 1), dim=-1, index=x_index
-    )
+    print("right.unsqueeze(2).repeat(1, 1, max_disp, 1, 1).shape: ", right.unsqueeze(2).repeat(1, 1, max_disp, 1, 1).shape)
+    # right = torch.gather(
+    #     right.unsqueeze(2).repeat(1, 1, max_disp, 1, 1), dim=-1, index=x_index
+    # )
+    right = right.unsqueeze(2).repeat(1, 1, max_disp, 1, 1)[:,:,:,:,:160]
+    print("right.shape: ", right.shape)
 
     return left.unsqueeze(2) - right
 
@@ -281,7 +292,9 @@ class InitDispNet(nn.Module):
             max_disp,
         )
         cost_volume = torch.norm(cost_volume, p=1, dim=1)
-        cost_f, d_init = torch.min(cost_volume, dim=1, keepdim=True)
+        cost_f, d_init = torch.min(cost_volume, dim=1, keepdim=False)
+        cost_f = cost_f.unsqueeze(1)
+        d_init = d_init.unsqueeze(1)
         d_init = d_init.float()
 
         if feature_ref is None:
@@ -315,6 +328,8 @@ class PropagationNet(nn.Module):
         self.res_block = nn.Sequential(*self.res_block)
         self.convn = nn.Conv2d(32, 17, 3, 1, 1)
 
+        # test middle output stage need depth_wise_replace_1
+        # self.depth_wise_replace_1 = nn.Conv2d(16, 16, 1, 1)
     def forward_once(self, hyp, left, right):
         x = warp_and_aggregate(hyp, left, right)
         x = self.conv_neighbors(x)
@@ -322,6 +337,10 @@ class PropagationNet(nn.Module):
         x = self.conv1(x)
         x = self.res_block(x)
         x = self.convn(x)
+
+        # test middle output stage need depth_wise_replace_1
+        # hyp = self.depth_wise_replace_1(hyp)
+
         hyp = hyp + x[:, :-1, :, :]
         w = x[:, -1:, :, :]
         return hyp, w
@@ -394,8 +413,8 @@ class HITNet_SF(nn.Module):
         h_1 = self.refine_l0(h_0, lf[2])
         h_2 = self.refine_l1(hyp_up(h_1, 1, 2), lf[1])
         h_3 = self.refine_l2(hyp_up(h_2, 1, 2), lf[0])[:, :, :h, :w]
-        # return  h_3[:, 0:1],
-        return  h_3
+        return  h_3[:, 0:1]
+        # return h_0
         # return h_3[:, 0:1],[
         #         h_0[:, 0:1],
         #         h_1[:, 0:1],

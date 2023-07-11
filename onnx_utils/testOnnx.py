@@ -1,3 +1,6 @@
+import sys, os
+CURRENT_DIR = os.path.dirname(__file__)
+sys.path.append(os.path.join(CURRENT_DIR, '../'))
 import onnxruntime
 import torch
 from onnxmodel import ONNXModel
@@ -7,7 +10,7 @@ import numpy as np
 from colormap import apply_colormap
 import torchvision
 
-model = ONNXModel("hitnet_sf_finalpass_640_400.onnx")
+model = ONNXModel("hitnet_sf_finalpass_640_400_1.onnx")
 
 lp = "/data/ljdong/Depth_Estimate/image/left/0000000000.png"
 rp = "/data/ljdong/Depth_Estimate/image/right/0000000000.png"

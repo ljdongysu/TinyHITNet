@@ -1,7 +1,7 @@
 import sys, os
 
 CURRENT_DIR = os.path.dirname(__file__)
-sys.path.append(os.path.join(CURRENT_DIR, '../../'))
+sys.path.append(os.path.join(CURRENT_DIR, '../'))
 
 import torch
 import torch.nn as nn

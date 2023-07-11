@@ -1,0 +1,1 @@
+/work/data/KITTI_SUB/2011_09_26_drive_0001_sync/image_02/data/0000000000.png /work/data/KITTI_SUB/2011_09_26_drive_0001_sync/image_03/data/0000000000.png
