@@ -10,7 +10,7 @@ import numpy as np
 from colormap import apply_colormap
 import torchvision
 
-model = ONNXModel("hitnet_sf_finalpass_640_400_1.onnx")
+model = ONNXModel("hitnet_index_weight_all_666.onnx")
 
 lp = "/data/ljdong/Depth_Estimate/image/left/0000000000.png"
 rp = "/data/ljdong/Depth_Estimate/image/right/0000000000.png"

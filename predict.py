@@ -37,16 +37,16 @@ def predict(model, lp, rp, width, op):
     left = np2torch(left, bgr=True).cuda().unsqueeze(0)
     right = np2torch(right, bgr=True).cuda().unsqueeze(0)
     pred = model(left, right)
-    print(pred.shape)
+    # print(pred.shape)
     # disp = pred["disp"]
     disp = pred[:, 0:1]
     disp = torch.clip(disp / 192 * 255, 0, 255).long()
     disp = apply_colormap(disp)
 
     output = [left, disp]
-    if "slant" in pred:
-        dxy = dxy_colormap(pred["slant"][-1][1])
-        output.append(dxy)
+    # if "slant" in pred:
+    #     dxy = dxy_colormap(pred["slant"][-1][1])
+    #     output.append(dxy)
 
     output = torch.cat(output, dim=0)
     torchvision.utils.save_image(output, op, nrow=1)
@@ -73,15 +73,15 @@ if __name__ == "__main__":
     model = PredictModel(**vars(args)).eval()
     ckpt = torch.load(args.ckpt)
     if "state_dict" in ckpt:
-        model.load_state_dict(ckpt["state_dict"])
+        model.load_state_dict(ckpt["state_dict"],strict=False)
     else:
         model.model.load_state_dict(ckpt)
     model.cuda()
-    # height = 320
-    # width = 960
+    # height = 400
+    # width = 640
     # input_L = torch.randn(1, 3, height, width, device='cuda:0')
     # input_R = torch.randn(1, 3, height, width, device='cuda:0')
-    # model_trace = torch.jit.trace(model.model, (input_L,input_R))
+    # model_trace = torch.jit.script(model.model, (input_L,input_R))
     # model_trace.save("hitnet_sf_finalpass.pt")
     if "*" in args.images[0]:
         lps = list(sorted(Path(".").glob(args.images[0])))

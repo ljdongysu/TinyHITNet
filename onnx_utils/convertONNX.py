@@ -32,7 +32,7 @@ if __name__ == "__main__":
     model = PredictModel(**vars(args)).eval()
     ckpt = torch.load(args.ckpt)
     if "state_dict" in ckpt:
-        model.load_state_dict(ckpt["state_dict"])
+        model.load_state_dict(ckpt["state_dict"],strict=False)
     else:
         model.model.load_state_dict(ckpt)
     model1 = model.model
@@ -42,8 +42,10 @@ if __name__ == "__main__":
     width = 640
     lp = Path(args.images[0])
     rp = Path(args.images[1])
+    print(lp)
     left = cv2.imread(str(lp), cv2.IMREAD_COLOR)
     right = cv2.imread(str(rp), cv2.IMREAD_COLOR)
+    print(left)
     left = np2torch(left, bgr=True).cuda().unsqueeze(0)
     right = np2torch(right, bgr=True).cuda().unsqueeze(0)
     left = left * 2 - 1

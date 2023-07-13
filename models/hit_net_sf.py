@@ -2,8 +2,20 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import functools
+
+import itertools
+import operator
+
 import math
 
+def clip_by_tensor(t, min_value, max_value):
+    t_min = torch.ones_like(t).cuda() * min_value
+
+    t_max = torch.ones_like(t) * max_value
+    result = (t >= t_min) * t + (t < t_min) * t_min
+
+    result = (result <= t_max) * result + (result > t_max) * t_max
+    return result
 
 def same_padding_conv(x, w, b, s):
     # out_h = math.ceil(x.size(2) / s[0])
@@ -178,6 +190,7 @@ def hyp_up(hyp, scale=1, tile_scale=1):
 
 def warp_and_aggregate(hyp, left, right):
     scale = left.size(3) // hyp.size(3)
+    print("left.shape: ", left.shape, "hyp.shape: ", hyp.shape)
     assert scale == 4
 
     d_expand = disp_up(hyp[:, :1], hyp[:, 1:2], hyp[:, 2:3], scale, tile_expand=True)
@@ -193,13 +206,37 @@ def warp_and_aggregate(hyp, left, right):
         # TODO replace torch.clip 
         index_left = index_long# torch.clip(index_long, min=0, max=right.size(3) - 1)
         index_right = index_long + 1# torch.clip(index_long + 1, min=0, max=right.size(3) - 1)
+
+
+        # TODO replace torch.clip
+        # index_left = clip_by_tensor(index_long, 0, right.size(3) - 1)
+        # index_right = clip_by_tensor(index_long + torch.ones_like(index_long).cuda(), 0, right.size(3) - 1)
         index_weight = index_float - index_left
 
         # right_warp_left = torch.gather(right, dim=-1, index=index_left.long())
         # right_warp_right = torch.gather(right, dim=-1, index=index_right.long())
-        ## TODO replace torch.gather 
+        ## TODO replace torch.gather
         right_warp_left = left # torch.gather(right, dim=-1, index=index_left.long())
         right_warp_right = right # torch.gather(right, dim=-1, index=index_right.long())
+
+        # print("index_left.shape: ", index_left.shape, "index_right.shape: ",index_right.shape, "left.shape: ",
+        #       left.shape, "right.shape: ", right.shape )
+        #
+        #
+        # offset_index_left = torch.arange(index_left.shape[1] * index_left.shape[2]).cuda() * right.shape[-1]
+        #
+        # offset_index_left = offset_index_left.unsqueeze(1).repeat(1, left.shape[-1])
+        # right_warp_left = right.view(-1)[
+        #     (index_left.view(-1, left.shape[-1]) + offset_index_left).view(-1)]
+        # right_warp_left = right_warp_left.view(left.shape[0], left.shape[1], left.shape[2], left.shape[3])  #
+        #
+        # offset_index_right = torch.arange(index_right.shape[1] * index_right.shape[2]).cuda() * right.shape[-1]
+        #
+        # offset_index_right = offset_index_right.unsqueeze(1).repeat(1, left.shape[-1])
+        # right_warp_right = right.view(-1)[
+        #     (index_right.view(-1, left.shape[-1]) + offset_index_right).view(-1)]
+        # right_warp_right = right_warp_right.view(left.shape[0], left.shape[1], left.shape[2], left.shape[3])  #
+
         print("right.shape: ", right.shape, "right_warp_left.shape: ", right_warp_left.shape)
         print("left.shape: ", left.shape, "right_warp_right: ", right_warp_right.shape)
         
@@ -232,22 +269,42 @@ class ResBlock(nn.Module):
         x = self.relu(x)
         return x
 
+def gather(input, dim, index):
+    indices = [torch.arange(size, device=index.device) for size in index.shape]
+    indices = list(torch.meshgrid(*indices))
+    indices[dim] = index
+    sizes = list(reversed(list(itertools.accumulate(reversed(input.shape), operator.mul))))
+    index = sum((index * size for index, size in zip(indices, sizes[1:] + [1])))
+    output = input.flatten()[index]
+    return output
 
 def make_cost_volume_v2(left, right, max_disp):
+    print("max_disp: ", max_disp, "left.size(3): ", left.size(3), "left.shape: ", left.shape, "right.shape: ", right.shape)
     d_range = torch.arange(max_disp, device=left.device)
     d_range = d_range.view(1, 1, -1, 1, 1)
 
     x_index = torch.arange(left.size(3), device=left.device)
     x_index = x_index.view(1, 1, 1, 1, -1)
 
-    x_index = torch.clip(4 * x_index - d_range + 1, 0, right.size(3) - 1).repeat(
-        right.size(0), right.size(1), 1, right.size(2), 1
-    )
-    print("right.unsqueeze(2).repeat(1, 1, max_disp, 1, 1).shape: ", right.unsqueeze(2).repeat(1, 1, max_disp, 1, 1).shape)
+
+    # x_index = torch.clip(4 * x_index - d_range + 1, 0, right.size(3) - 1).repeat(
+    #     right.size(0), right.size(1), 1, right.size(2), 1
+    # )
     # right = torch.gather(
     #     right.unsqueeze(2).repeat(1, 1, max_disp, 1, 1), dim=-1, index=x_index
     # )
-    right = right.unsqueeze(2).repeat(1, 1, max_disp, 1, 1)[:,:,:,:,:160]
+    # torch.clip and torch.gather are replaced together is OK!
+    x_index = clip_by_tensor(4 * x_index - d_range + 1, 0, right.size(3) - 1).repeat(
+        right.size(0), right.size(1), 1, right.size(2), 1
+    )
+    print("right.unsqueeze(2).repeat(1, 1, max_disp, 1, 1).shape: ", right.unsqueeze(2).repeat(1, 1, max_disp, 1, 1).shape)
+    offset_index = torch.arange(right.shape[1] * right.shape[2] * max_disp).cuda() * right.shape[-1]
+
+    offset_index = offset_index.unsqueeze(1).repeat(1, left.shape[-1])
+    right = right.unsqueeze(2).repeat(1, 1, max_disp, 1, 1).view(-1)[(x_index.view(-1,left.shape[-1]) + offset_index).view(-1)]
+    right = right.view(left.shape[0], left.shape[1], max_disp, left.shape[2], left.shape[3]) # (1,16,320,100,160)
+
+    # right = right.unsqueeze(2).repeat(1, 1, max_disp, 1, 1)[:,:,:,:,:160]
     print("right.shape: ", right.shape)
 
     return left.unsqueeze(2) - right
@@ -291,6 +348,9 @@ class InitDispNet(nn.Module):
             feature_right_tilde,
             max_disp,
         )
+        # print("cost_volume.shape: ", cost_volume.shape)
+        # return cost_volume, cost_volume
+        # return cost_volume, cost_volume # error IndexError: vector::_M_range_check: __n (which is 4) >= this->size() (which is 4)
         cost_volume = torch.norm(cost_volume, p=1, dim=1)
         cost_f, d_init = torch.min(cost_volume, dim=1, keepdim=False)
         cost_f = cost_f.unsqueeze(1)
@@ -329,9 +389,77 @@ class PropagationNet(nn.Module):
         self.convn = nn.Conv2d(32, 17, 3, 1, 1)
 
         # test middle output stage need depth_wise_replace_1
-        # self.depth_wise_replace_1 = nn.Conv2d(16, 16, 1, 1)
+        self.depth_wise_replace_1 = nn.Conv2d(16, 16, 1, 1)
     def forward_once(self, hyp, left, right):
         x = warp_and_aggregate(hyp, left, right)
+        # ## fix torch.clip
+        # scale = left.size(3) // hyp.size(3)
+        # print("left.shape: ", left.shape, "hyp.shape: ", hyp.shape)
+        # assert scale == 4
+        #
+        # d_expand = disp_up(hyp[:, :1], hyp[:, 1:2], hyp[:, 2:3], scale, tile_expand=True)
+        # d_range = torch.arange(right.size(3), device=right.device)
+        # d_range = d_range.view(1, 1, 1, -1) - d_expand
+        # d_range = d_range.repeat(1, right.size(1), 1, 1)
+        #
+        # cost = [torch.sum(torch.abs(left), dim=1, keepdim=True)]
+        # for offset in [1, 0, -1]:
+        #     index_float = d_range + offset
+        #     index_long = torch.floor(index_float).long()
+        #
+        #     # TODO replace torch.clip use blow demo
+        #     t_min = torch.ones_like(index_long).cuda() * 0
+        #     t_min_2 = self.depth_wise_replace_1(t_min.float()).long()
+        #     t_min_3 = self.depth_wise_replace_1(t_min.float()).long()
+        #
+        #     t_max = torch.ones_like(index_long) * (right.size(3) - 1)
+        #     t_max_2 = self.depth_wise_replace_1(t_max.float()).long()
+        #     t_max_3 = self.depth_wise_replace_1(t_max.float()).long()
+        #     index_min = (index_long >= t_min) * index_long + (index_long < t_min_2) * t_min_3
+        #
+        #     index_left = (index_min <= t_max) * index_min + (index_min > t_max_2) * t_max_3
+        #     index_left = index_left.long()
+        #     print("index_long.shape: ", index_long.shape, ", index_left.shape: ", index_left.shape)
+        #
+        #     # index_left = torch.clip(index_long, min=0, max=right.size(3) - 1)
+        #     index_right = index_long + 1  # torch.clip(index_long + 1, min=0, max=right.size(3) - 1)
+        #
+        #     # t_min = torch.ones_like(index_long + 1).cuda() * 0
+        #     # t_min_2 = self.depth_wise_replace_1(t_min.float()).long()
+        #     # t_min_3 = self.depth_wise_replace_1(t_min.float()).long()
+        #     #
+        #     # t_max = torch.ones_like(index_long) * (right.size(3) - 1)
+        #     # t_max_2 = self.depth_wise_replace_1(t_max.float()).long()
+        #     # t_max_3 = self.depth_wise_replace_1(t_max.float()).long()
+        #     # index_min = (index_long >= t_min) * index_long + (index_long < t_min_2) * t_min_3
+        #     #
+        #     # index_right = (index_min <= t_max) * index_min + (index_min > t_max_2) * t_max_3
+        #     # index_right = index_right.long()
+        #
+        #     index_weight = index_float - index_left
+        #     # right_warp_left = torch.gather(right, dim=-1, index=index_left.long())
+        #     # print("right.shapeppppp: ", right.shape, "right_warp_left.shape: ", right_warp_left.shape)
+        #
+        #     # right_warp_right = torch.gather(right, dim=-1, index=index_right.long())
+        #     ## TODO replace torch.gather
+        #     right_warp_left = right  # torch.gather(right, dim=-1, index=index_left.long())
+        #     right_warp_right = right  # torch.gather(right, dim=-1, index=index_right.long())
+        #     print("right.shape: ", right.shape, "right_warp_left.shape: ", right_warp_left.shape)
+        #     print("left.shape: ", left.shape, "right_warp_right: ", right_warp_right.shape)
+        #
+        #     right_warp = right_warp_left + index_weight * (
+        #             right_warp_right - right_warp_left
+        #     )
+        #
+        #     cost.append(torch.sum(torch.abs(left - right_warp), dim=1, keepdim=True))
+        # cost = torch.cat(cost, dim=1)
+        #
+        # n, c, h, w = cost.size()  # 1 X 4 X 400 X 640
+        # cost = cost.reshape(n, c, h // scale, scale, w // scale, scale)  # 1 X 4 X 100 X 4 X 160 X 4
+        # cost = cost.permute(0, 3, 5, 1, 2, 4)
+        # x = cost.reshape(n, scale * scale * c, h // scale, w // scale)
+
+
         x = self.conv_neighbors(x)
         x = torch.cat((hyp, x), dim=1)
         x = self.conv1(x)
