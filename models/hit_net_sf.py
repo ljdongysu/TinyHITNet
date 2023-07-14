@@ -3,9 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import functools
 
-import itertools
-import operator
-
 import math
 
 def clip_by_tensor(t, min_value, max_value):
@@ -269,15 +266,6 @@ class ResBlock(nn.Module):
         x = self.relu(x)
         return x
 
-def gather(input, dim, index):
-    indices = [torch.arange(size, device=index.device) for size in index.shape]
-    indices = list(torch.meshgrid(*indices))
-    indices[dim] = index
-    sizes = list(reversed(list(itertools.accumulate(reversed(input.shape), operator.mul))))
-    index = sum((index * size for index, size in zip(indices, sizes[1:] + [1])))
-    output = input.flatten()[index]
-    return output
-
 def make_cost_volume_v2(left, right, max_disp):
     print("max_disp: ", max_disp, "left.size(3): ", left.size(3), "left.shape: ", left.shape, "right.shape: ", right.shape)
     d_range = torch.arange(max_disp, device=left.device)
@@ -294,9 +282,11 @@ def make_cost_volume_v2(left, right, max_disp):
     #     right.unsqueeze(2).repeat(1, 1, max_disp, 1, 1), dim=-1, index=x_index
     # )
     # torch.clip and torch.gather are replaced together is OK!
-    x_index = clip_by_tensor(4 * x_index - d_range + 1, 0, right.size(3) - 1).repeat(
-        right.size(0), right.size(1), 1, right.size(2), 1
-    )
+    # x_index = clip_by_tensor(4 * x_index - d_range + 1, 0, right.size(3) - 1).repeat(
+    #     right.size(0), right.size(1), 1, right.size(2), 1
+    # )
+    x_index = torch.clip(4 * x_index - d_range + 1, 0, right.size(3) - 1).repeat(
+        right.size(0), right.size(1), 1, right.size(2), 1)
     print("right.unsqueeze(2).repeat(1, 1, max_disp, 1, 1).shape: ", right.unsqueeze(2).repeat(1, 1, max_disp, 1, 1).shape)
     offset_index = torch.arange(right.shape[1] * right.shape[2] * max_disp).cuda() * right.shape[-1]
 
