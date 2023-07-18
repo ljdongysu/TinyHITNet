@@ -7,6 +7,68 @@ import pytorch_lightning as pl
 
 from models import build_model
 import re
+import numpy as np
+
+def GetDepthImg(img):
+    depth_img_rest = img.copy()
+    depth_img_R = depth_img_rest.copy()
+    depth_img_R[depth_img_rest > 255] = 255
+    depth_img_rest[depth_img_rest < 255] = 255
+    depth_img_rest -= 255
+    depth_img_G = depth_img_rest.copy()
+    depth_img_G[depth_img_rest > 255] = 255
+    depth_img_rest[depth_img_rest < 255] = 255
+    depth_img_rest -= 255
+    depth_img_B = depth_img_rest.copy()
+    depth_img_B[depth_img_rest > 255] = 255
+    depth_img_rgb = np.stack([depth_img_R, depth_img_G, depth_img_B], axis=2)
+    return depth_img_rgb.astype(np.uint8)
+
+def WriteDepth(depth, limg, path, name):
+    output_concat_color = os.path.join(path, "concat_color", name)
+    output_concat_gray = os.path.join(path, "concat_gray", name)
+    output_gray = os.path.join(path, "gray", name)
+    output_gray_scale = os.path.join(path, "gray_scale", name)
+    output_depth = os.path.join(path, "depth", name)
+    output_color = os.path.join(path, "color", name)
+    output_concat_depth = os.path.join(path, "concat_depth", name)
+    output_concat = os.path.join(path, "concat", name)
+    output_display = os.path.join(path, "display", name)
+    MkdirSimple(output_concat_color)
+    MkdirSimple(output_concat_gray)
+    MkdirSimple(output_concat_depth)
+    MkdirSimple(output_gray)
+    MkdirSimple(output_depth)
+    MkdirSimple(output_color)
+    MkdirSimple(output_concat)
+    MkdirSimple(output_display)
+    MkdirSimple(output_gray_scale)
+
+    predict_np = depth.squeeze().cpu().numpy()
+    print(predict_np.max(), " ", predict_np.min())
+    predict_scale = (predict_np - np.min(predict_np))* 255 / (np.max(predict_np) - np.min(predict_np))
+
+    predict_scale = predict_scale.astype(np.uint8)
+    predict_np_int = predict_scale
+    color_img = cv2.applyColorMap(predict_np_int, cv2.COLORMAP_HOT)
+    limg_cv = limg  # cv2.cvtColor(np.asarray(limg), cv2.COLOR_RGB2BGR)
+    concat_img_color = np.vstack([limg_cv, color_img])
+    predict_np_rgb = np.stack([predict_np, predict_np, predict_np], axis=2)
+    concat_img_gray = np.vstack([limg_cv, predict_np_rgb])
+
+    # get depth
+    depth_img_rgb = GetDepthImg(predict_np)
+    concat_img_depth = np.vstack([limg_cv, depth_img_rgb])
+    concat = np.hstack([np.vstack([limg_cv, color_img]), np.vstack([predict_np_rgb, depth_img_rgb])])
+
+    cv2.imwrite(output_concat_color, concat_img_color)
+    cv2.imwrite(output_concat_gray, concat_img_gray)
+    cv2.imwrite(output_color, color_img)
+
+    cv2.imwrite(output_gray, predict_np)
+    cv2.imwrite(output_depth, depth_img_rgb)
+    cv2.imwrite(output_concat_depth, concat_img_depth)
+    cv2.imwrite(output_concat, concat)
 
 def MkdirSimple(path):
     path_current = path
@@ -54,8 +116,9 @@ class PredictModel(pl.LightningModule):
 
 
 @torch.no_grad()
-def predict(model, lp, rp, width, op):
+def predict(model, lp, rp, width, op, save_dir):
     left = cv2.imread(str(lp), cv2.IMREAD_COLOR)
+    left_copy = left.copy()
     right = cv2.imread(str(rp), cv2.IMREAD_COLOR)
     if width is not None and width != left.shape[1]:
         height = int(round(width / left.shape[1] * left.shape[0]))
@@ -75,14 +138,12 @@ def predict(model, lp, rp, width, op):
 
     disp = pred["disp"]
     print(disp.max(), disp.min(), disp.shape)
+
     disp = torch.clip(disp / 192 * 255, 0, 255).long()
+    WriteDepth(disp[0][0], left_copy, save_dir, op.replace(".jpg", ".png"))
     disp = apply_colormap(disp)
-
     torchvision.utils.save_image(disp, op, nrow=1)
-
-
     return
-
 
 if __name__ == "__main__":
     import cv2
@@ -128,5 +189,5 @@ if __name__ == "__main__":
         else:
             op = os.path.join(args.output,lp[root_len:])
         MkdirSimple(op)
-        predict(model, lp, rp, args.width, op)
+        predict(model, lp, rp, args.width, op, args.output)
         print("output: {}".format(op))
