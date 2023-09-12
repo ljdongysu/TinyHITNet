@@ -46,7 +46,9 @@ This is a **Pytorch** implementations of *"HITNet: Hierarchical Iterative Tile R
 ```shell
 python predict.py --model HITNet --ckpt ckpt/{ckpt_name} --images {left.png} {right.png} --output {disp.png}
 ```
-
+### Test images
+```shell
+python test_image.py --images /home/indemind/Code/PycharmProjects/Depth_Estimation/Stereo/madnet/test_images/kitti_train/REMAP   --ckpt ckpt/hitnet_kitti_260.ckpt  --model HITNet_KITTI  --output ./result/hit_KITTI_2```
 ## Citation
 ```
 @article{tankovich2020hitnet,
